@@ -495,10 +495,15 @@ add_subdirectory(${EXTERNAL}/smol-v/tnt)
 add_subdirectory(${EXTERNAL}/benchmark/tnt)
 add_subdirectory(${EXTERNAL}/meshoptimizer)
 add_subdirectory(${EXTERNAL}/cgltf/tnt)
-add_subdirectory(${EXTERNAL}/draco)
 add_subdirectory(${EXTERNAL}/xatlas/tnt)
 add_subdirectory(${EXTERNAL}/stb/tnt)
 add_subdirectory(${EXTERNAL}/getopt)
+
+# TODO: We should provide our own CMake file rather than use Draco's.
+# This would allow us to build it for WebGL without requiring env vars.
+if (NOT WEBGL)
+    add_subdirectory(${EXTERNAL}/draco)
+endif()
 
 if (FILAMENT_BUILD_FILAMAT)
     # spirv-tools must come before filamat, as filamat relies on the presence of the

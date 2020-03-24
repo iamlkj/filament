@@ -17,16 +17,21 @@
 #ifndef GLTFIO_DRACO_MESH_H
 #define GLTFIO_DRACO_MESH_H
 
+#include <cgltf.h>
+
 #include <memory>
 
 namespace gltfio {
 
 using DracoMeshHandle = std::unique_ptr<class DracoMesh>;
 
+// The class decodes a Draco mesh upon construction and retains the results.
+// For convenience, each decoded attribute is exposed as a cgltf_buffer_view.
 class DracoMesh {
 public:
     static DracoMeshHandle decode(const uint8_t* compressedData, size_t compressedSize);
-    bool getAttribute(uint32_t attrId, uint8_t** uncompressedData, size_t* uncompressedSize) const;
+    cgltf_buffer_view* getAttribute(uint32_t attributeId) const;
+    cgltf_buffer_view* getFaceIndices() const;
     ~DracoMesh();
 private:
     DracoMesh(struct DracoMeshDetails* details);

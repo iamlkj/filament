@@ -138,7 +138,6 @@ private:
     void computeTangents(details::FFilamentAsset* asset) const;
     void normalizeSkinningWeights(details::FFilamentAsset* asset) const;
     void updateBoundingBoxes(details::FFilamentAsset* asset) const;
-    void decodeDracoMeshes(details::FFilamentAsset* asset) const;
     details::AssetPool* mPool;
     struct Impl;
     Impl* pImpl;

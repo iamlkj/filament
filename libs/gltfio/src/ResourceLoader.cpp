@@ -20,10 +20,6 @@
 #include "FFilamentAsset.h"
 #include "upcast.h"
 
-#if GLTFIO_DRACO_SUPPORTED
-#include "DracoMesh.h"
-#endif
-
 #include <filament/Engine.h>
 #include <filament/IndexBuffer.h>
 #include <filament/MaterialInstance.h>
@@ -44,6 +40,11 @@
 #include <tsl/robin_map.h>
 
 #include <string>
+
+#if GLTFIO_DRACO_SUPPORTED
+#include "DracoMesh.h"
+using DracoCache = tsl::robin_map<const cgltf_buffer_view*, gltfio::DracoMeshHandle>;
+#endif
 
 #if defined(__EMSCRIPTEN__) || defined(ANDROID)
 #define USE_FILESYSTEM 0
@@ -177,6 +178,84 @@ static void convertBytesToShorts(uint16_t* dst, const uint8_t* src, size_t count
     }
 }
 
+#if GLTFIO_DRACO_SUPPORTED
+static void decodeDracoMeshes(DracoCache* dracoCache, FFilamentAsset* asset) {
+    // For a given primitive and attribute, find the corresponding accessor.
+    auto findAccessor = [](const cgltf_primitive* prim, cgltf_attribute_type type, cgltf_int idx) {
+        for (cgltf_size i = 0; i < prim->attributes_count; i++) {
+            const cgltf_attribute& attr = prim->attributes[i];
+            if (attr.type == type && attr.index == idx) {
+                return attr.data;
+            }
+        }
+        return (cgltf_accessor*) nullptr;
+    };
+
+    // Go through every primitive and check if it has a Draco mesh.
+    for (auto pair : asset->mPrimitives) {
+        const cgltf_primitive* prim = pair.first;
+        VertexBuffer* vb = pair.second;
+        if (!prim->has_draco_mesh_compression) {
+            continue;
+        }
+
+        const cgltf_draco_mesh_compression& draco = prim->draco_mesh_compression;
+
+        // Check if we have already decoded this mesh.
+        DracoMesh* mesh;
+        if (dracoCache->find(draco.buffer_view) != dracoCache->end()) {
+            mesh = dracoCache->at(draco.buffer_view).get();
+        } else {
+
+            // Decompress the data.
+            const uint8_t* compressedData = (uint8_t*) draco.buffer_view->buffer->data;
+            compressedData += draco.buffer_view->offset;
+            size_t compressedSize = draco.buffer_view->size;
+            DracoMeshHandle meshHandle = DracoMesh::decode(compressedData, compressedSize);
+
+            if (!meshHandle) {
+                slog.w << "Cannot decompress mesh, Draco decoding error." << io::endl;
+                continue;
+            }
+
+            mesh = meshHandle.get();
+            dracoCache->insert({draco.buffer_view, std::move(meshHandle)});
+        }
+
+        if (prim->indices && prim->indices->buffer_view == nullptr) {
+            prim->indices->buffer_view = mesh->getFaceIndices();
+        }
+
+        // Go through each attribute in the decompressed mesh and find its destination accessor.
+        for (cgltf_size i = 0; i < draco.attributes_count; i++) {
+
+            // In cgltf, each Draco attribute's data pointer is an attribute id, not an accessor.
+            const uint32_t id = draco.attributes[i].data - asset->mSourceAsset->accessors;
+
+            cgltf_buffer_view* uncompressed = mesh->getAttribute(id);
+            if (!uncompressed) {
+                slog.w << "Cannot find Draco attribute with id = " << id << io::endl;
+                continue;
+            }
+
+            const cgltf_attribute_type type = draco.attributes[i].type;
+            const cgltf_int index = draco.attributes[i].index;
+            cgltf_accessor* accessor = findAccessor(prim, type, index);
+            if (!accessor) {
+                slog.w << "Cannot find matching accessor for Draco id " << id << io::endl;
+                continue;
+            }
+
+            if (accessor->buffer_view == nullptr) {
+                accessor->buffer_view = uncompressed;
+            }
+            // TODO: implement proper fallback behavior as described here:
+            // https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_draco_mesh_compression#conformance
+        }
+    }
+}
+#endif
+
 ResourceLoader::ResourceLoader(const ResourceConfiguration& config) :
         mPool(new AssetPool), pImpl(new Impl(config)) { }
 
@@ -296,6 +375,11 @@ bool ResourceLoader::loadResources(FFilamentAsset* asset, bool async) {
         updateBoundingBoxes(asset);
     }
 
+#if GLTFIO_DRACO_SUPPORTED
+    DracoCache dracoCache;
+    decodeDracoMeshes(&dracoCache, asset);
+#endif
+
     Engine& engine = *pImpl->mEngine;
 
     // Upload VertexBuffer and IndexBuffer data to the GPU.
@@ -327,9 +411,6 @@ bool ResourceLoader::loadResources(FFilamentAsset* asset, bool async) {
         IndexBuffer::BufferDescriptor bd(data, size, AssetPool::onLoadedResource, mPool);
         slot.indexBuffer->setBuffer(engine, std::move(bd));
     }
-
-    // Decode draco meshes if necessary. This should be done before computing tangents etc.
-    decodeDracoMeshes(asset);
 
     // Copy over the inverse bind matrices.
     for (cgltf_size i = 0, len = gltf->skins_count; i < len; ++i) {
@@ -900,61 +981,6 @@ void ResourceLoader::updateBoundingBoxes(details::FFilamentAsset* asset) const {
     }
 
     asset->mBoundingBox = assetBounds;
-}
-
-void ResourceLoader::decodeDracoMeshes(details::FFilamentAsset* asset) const {
-#if GLTFIO_DRACO_SUPPORTED
-    // For a given primitive and attribute, find the corresponding accessor.
-    auto findAccessor = [](const cgltf_primitive* prim, cgltf_attribute_type type, cgltf_int idx) {
-        for (cgltf_size i = 0; i < prim->attributes_count; i++) {
-            const cgltf_attribute& attr = prim->attributes[i];
-            if (attr.type == type && attr.index == idx) {
-                return attr.data;
-            }
-        }
-        return (cgltf_accessor*) nullptr;
-    };
-
-    // Go through every primitive and check if it has a Draco mesh.
-    for (auto pair : asset->mPrimitives) {
-        const cgltf_primitive* prim = pair.first;
-        VertexBuffer* vb = pair.second;
-        if (!prim->has_draco_mesh_compression) {
-            continue;
-        }
-
-        // Decompress the data.
-        const cgltf_draco_mesh_compression& draco = prim->draco_mesh_compression;
-        const uint8_t* compressedData = (uint8_t*) draco.buffer_view->buffer->data;
-        size_t compressedSize = draco.buffer_view->buffer->size;
-        DracoMeshHandle mesh = DracoMesh::decode(compressedData, compressedSize);
-        if (!mesh) {
-            slog.w << "Cannot decompress mesh, Draco decoding error." << io::endl;
-            return;
-        }
-
-        // Go through each attribute in the decompressed mesh and find its destination accessor.
-        for (cgltf_size i = 0; i < draco.attributes_count; i++) {
-
-            // In cgltf, each Draco attribute's data pointer is an attribute id, not an accessor.
-            const uint32_t id = draco.attributes[i].data - asset->mSourceAsset->accessors;
-
-            uint8_t* udata;
-            size_t usize;
-            if (!mesh->getAttribute(id, &udata, &usize)) {
-                slog.w << "Cannot find Draco attribute with id = " << id << io::endl;
-                continue;
-            }
-
-            const cgltf_attribute_type type = draco.attributes[i].type;
-            const cgltf_int index = draco.attributes[i].index;
-            cgltf_accessor* accessor = findAccessor(prim, type, index);
-
-            // TODO...
-            printf("TODO: found draco attribute %zu %d %p %p\n", i, id, accessor, accessor->buffer_view);
-        }
-    }
-#endif
 }
 
 } // namespace gltfio
