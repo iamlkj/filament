@@ -203,6 +203,7 @@ FilamentAsset* FAssetLoader::createAssetFromBinary(const uint8_t* bytes, uint32_
 }
 
 void FAssetLoader::createAsset(const cgltf_data* srcAsset) {
+    #if !GLTFIO_DRACO_SUPPORTED
     for (cgltf_size i = 0; i < srcAsset->extensions_required_count; i++) {
         if (!strcmp(srcAsset->extensions_required[i], "KHR_draco_mesh_compression")) {
             slog.e << "KHR_draco_mesh_compression is not supported." << io::endl;
@@ -210,6 +211,7 @@ void FAssetLoader::createAsset(const cgltf_data* srcAsset) {
             return;
         }
     }
+    #endif
 
     mResult = new FFilamentAsset(mEngine, mNameManager);
     mResult->mSourceAsset = srcAsset;
@@ -927,7 +929,7 @@ void FAssetLoader::addTextureBinding(MaterialInstance* materialInstance, const c
         dstSampler.setMagFilter(TextureSampler::MagFilter::LINEAR);
         dstSampler.setMinFilter(TextureSampler::MinFilter::LINEAR_MIPMAP_LINEAR);
     }
-    // auto bv = srcTexture->image->buffer_view;
+
     mResult->mTextureSlots.push_back({
         .texture = srcTexture,
         .materialInstance = materialInstance,

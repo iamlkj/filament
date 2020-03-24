@@ -45,6 +45,10 @@
 #include <string>
 #include <vector>
 
+#ifndef GLTFIO_DRACO_SUPPORTED
+#define GLTFIO_DRACO_SUPPORTED 0
+#endif
+
 namespace gltfio {
 namespace details {
 
