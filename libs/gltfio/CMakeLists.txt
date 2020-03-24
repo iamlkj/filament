@@ -137,12 +137,23 @@ target_compile_options(gltfio_core PRIVATE $<$<PLATFORM_ID:Linux>:-fPIC>)
 
 if (NOT WEBGL AND NOT ANDROID AND NOT IOS)
 
+    # TODO: enable Draco for Android while observing APK size.
+    add_definitions(-DGLTFIO_DRACO_SUPPORTED=1)
+
     # ==================================================================================================
     # Link the core library with additional dependencies to create the "full" library
     # ==================================================================================================
-    add_library(${TARGET} STATIC ${PUBLIC_HDRS} src/MaterialGenerator.cpp)
-    target_link_libraries(${TARGET} PUBLIC filamat gltfio_core)
-    target_include_directories(${TARGET} PUBLIC ${PUBLIC_HDR_DIR})
+    add_library(${TARGET} STATIC ${PUBLIC_HDRS}
+        src/DracoMesh.h
+        src/DracoMesh.cpp
+        src/MaterialGenerator.cpp)
+
+    target_link_libraries(${TARGET} PUBLIC filamat gltfio_core dracodec)
+
+    target_include_directories(${TARGET}
+        PUBLIC ${PUBLIC_HDR_DIR}
+        PRIVATE ${CMAKE_BINARY_DIR}
+        PRIVATE ../../third_party/draco/src)
 
     # ==================================================================================================
     # Compiler flags
