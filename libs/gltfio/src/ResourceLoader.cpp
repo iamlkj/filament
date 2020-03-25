@@ -222,22 +222,18 @@ static void decodeDracoMeshes(DracoCache* dracoCache, FFilamentAsset* asset) {
             dracoCache->insert({draco.buffer_view, std::move(meshHandle)});
         }
 
-        if (prim->indices && prim->indices->buffer_view == nullptr) {
-            prim->indices->buffer_view = mesh->getFaceIndices();
+        // Copy over the decompressed data, converting the data type if necessary.
+        if (prim->indices) {
+            mesh->getFaceIndices(prim->indices);
         }
 
-        // Go through each attribute in the decompressed mesh and find its destination accessor.
+        // Go through each attribute in the decompressed mesh.
         for (cgltf_size i = 0; i < draco.attributes_count; i++) {
 
             // In cgltf, each Draco attribute's data pointer is an attribute id, not an accessor.
             const uint32_t id = draco.attributes[i].data - asset->mSourceAsset->accessors;
 
-            cgltf_buffer_view* uncompressed = mesh->getAttribute(id);
-            if (!uncompressed) {
-                slog.w << "Cannot find Draco attribute with id = " << id << io::endl;
-                continue;
-            }
-
+            // Find the destination accessor; this contains the desired component type, etc.
             const cgltf_attribute_type type = draco.attributes[i].type;
             const cgltf_int index = draco.attributes[i].index;
             cgltf_accessor* accessor = findAccessor(prim, type, index);
@@ -246,11 +242,8 @@ static void decodeDracoMeshes(DracoCache* dracoCache, FFilamentAsset* asset) {
                 continue;
             }
 
-            if (accessor->buffer_view == nullptr) {
-                accessor->buffer_view = uncompressed;
-            }
-            // TODO: implement proper fallback behavior as described here:
-            // https://github.com/KhronosGroup/glTF/tree/master/extensions/2.0/Khronos/KHR_draco_mesh_compression#conformance
+            // Copy over the decompressed data, converting the data type if necessary.
+            mesh->getVertexAttributes(id, accessor);
         }
     }
 }
@@ -424,7 +417,7 @@ bool ResourceLoader::loadResources(FFilamentAsset* asset, bool async) {
     // we need to generate the contents of a GPU buffer by processing one or more CPU buffer(s).
     computeTangents(asset);
 
-    // Non-textured renderables are now considered ready, so notify the dep graph.
+    // Non-textured renderables are now considered ready, so notify the dependency graph.
     asset->mDependencyGraph.finalize();
     pImpl->mCurrentAsset = asset;
 
@@ -837,7 +830,7 @@ void ResourceLoader::computeTangents(FFilamentAsset* asset) const {
         auto texcoordsInfo = accessors[cgltf_attribute_type_texcoord];
         if (texcoordsInfo) {
             if (texcoordsInfo->count != vertexCount || texcoordsInfo->type != cgltf_type_vec2) {
-                slog.e << "Bad texcoord count or type." << io::endl;
+                slog.e << "Bad texture coordinate count or type." << io::endl;
                 return;
             }
             fp32TexCoords.resize(vertexCount);

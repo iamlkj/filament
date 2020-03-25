@@ -30,14 +30,14 @@ using DracoMeshHandle = std::unique_ptr<class DracoMesh>;
 class DracoMesh {
 public:
     static DracoMeshHandle decode(const uint8_t* compressedData, size_t compressedSize);
-    cgltf_buffer_view* getAttribute(uint32_t attributeId) const;
-    cgltf_buffer_view* getFaceIndices() const;
+    void getFaceIndices(cgltf_accessor* destination) const;
+    bool getVertexAttributes(uint32_t attributeId, cgltf_accessor* destination);
     ~DracoMesh();
 private:
     DracoMesh(struct DracoMeshDetails* details);
     std::unique_ptr<struct DracoMeshDetails> mDetails;
 };
 
-} // namsepace gltfio
+} // namespace gltfio
 
 #endif // GLTFIO_DRACO_MESH_H
