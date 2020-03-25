@@ -14,22 +14,35 @@
  * limitations under the License.
  */
 
-#ifndef GLTFIO_DRACO_MESH_H
-#define GLTFIO_DRACO_MESH_H
+#ifndef GLTFIO_DRACO_CACHE_H
+#define GLTFIO_DRACO_CACHE_H
 
 #include <cgltf.h>
+
+#include <tsl/robin_map.h>
 
 #include <memory>
 
 namespace gltfio {
 
-using DracoMeshHandle = std::unique_ptr<class DracoMesh>;
+class DracoMesh;
+
+// Manages a set of Draco meshes that can be looked up using a cgltf_buffer_view that holds
+// compressed data. This allows the loader to avoid duplicated work when a single Draco mesh
+// is referenced from multiple primitives.
+class DracoCache {
+public:
+    DracoMesh* findOrCreateMesh(const cgltf_buffer_view* key);
+private:
+    tsl::robin_map<const cgltf_buffer_view*, std::unique_ptr<DracoMesh>> mCache;
+};
 
 // The class decodes a Draco mesh upon construction and retains the results.
-// For convenience, each decoded attribute is exposed as a cgltf_buffer_view.
+// For convenience, each decoded attribute is exposed as a cgltf_buffer_view and its
+// metadata can be written into a cgltf_accessor.
 class DracoMesh {
 public:
-    static DracoMeshHandle decode(const uint8_t* compressedData, size_t compressedSize);
+    static DracoMesh* decode(const uint8_t* compressedData, size_t compressedSize);
     void getFaceIndices(cgltf_accessor* destination) const;
     bool getVertexAttributes(uint32_t attributeId, cgltf_accessor* destination);
     ~DracoMesh();
@@ -40,4 +53,4 @@ private:
 
 } // namespace gltfio
 
-#endif // GLTFIO_DRACO_MESH_H
+#endif // GLTFIO_DRACO_CACHE_H

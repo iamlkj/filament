@@ -144,8 +144,8 @@ if (NOT WEBGL AND NOT ANDROID AND NOT IOS)
     # Link the core library with additional dependencies to create the "full" library
     # ==================================================================================================
     add_library(${TARGET} STATIC ${PUBLIC_HDRS}
-        src/DracoMesh.h
-        src/DracoMesh.cpp
+        src/DracoCache.h
+        src/DracoCache.cpp
         src/MaterialGenerator.cpp)
 
     target_link_libraries(${TARGET} PUBLIC filamat gltfio_core dracodec)

@@ -47,6 +47,8 @@
 
 #ifndef GLTFIO_DRACO_SUPPORTED
 #define GLTFIO_DRACO_SUPPORTED 0
+#else
+#include "DracoCache.h"
 #endif
 
 namespace gltfio {
@@ -179,6 +181,7 @@ struct FFilamentAsset : public FilamentAsset {
         mPrimitives = {};
         mBufferSlots = {};
         mTextureSlots = {};
+        mDracoCache = {};
         releaseSourceAsset();
     }
 
@@ -227,6 +230,10 @@ struct FFilamentAsset : public FilamentAsset {
     bool mResourcesLoaded = false;
     bool mSharedSourceAsset = false;
     DependencyGraph mDependencyGraph;
+
+#if GLTFIO_DRACO_SUPPORTED
+    DracoCache mDracoCache;
+#endif
 
     // Sentinels for situations where ResourceLoader needs to generate data.
     const cgltf_accessor mGenerateNormals = {};

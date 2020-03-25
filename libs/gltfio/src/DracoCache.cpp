@@ -14,12 +14,13 @@
  * limitations under the License.
  */
 
-#include "DracoMesh.h"
+#include "DracoCache.h"
 
 #include <draco/compression/decode.h>
 
 #include <utils/Log.h>
 
+#include <memory>
 #include <vector>
 
 using std::unique_ptr;
@@ -35,10 +36,23 @@ struct DracoMeshDetails {
     vector<unique_ptr<cgltf_buffer>> buffers;
 };
 
+DracoMesh* DracoCache::findOrCreateMesh(const cgltf_buffer_view* key) {
+    auto iter = mCache.find(key);
+    if (iter != mCache.end()) {
+        return iter->second.get();
+    }
+    assert(key->buffer && key->buffer->data);
+    const uint8_t* compressedData = key->offset + (uint8_t*) key->buffer->data;
+    size_t compressedSize = key->size;
+    DracoMesh* mesh = DracoMesh::decode(compressedData, compressedSize);
+    mCache.insert({key, std::unique_ptr<DracoMesh>(mesh)});
+    return mesh;
+}
+
 DracoMesh::DracoMesh(DracoMeshDetails* details) : mDetails(details) {}
 DracoMesh::~DracoMesh() {}
 
-unique_ptr<DracoMesh> DracoMesh::decode(const uint8_t* data, size_t dataSize) {
+DracoMesh* DracoMesh::decode(const uint8_t* data, size_t dataSize) {
     draco::DecoderBuffer buffer;
     buffer.Init((const char*) data, dataSize);
     draco::Decoder decoder;
@@ -53,7 +67,7 @@ unique_ptr<DracoMesh> DracoMesh::decode(const uint8_t* data, size_t dataSize) {
     auto wrapper = new DracoMesh(new DracoMeshDetails { std::move(meshStatus).value() });
     DracoMeshDetails* details = wrapper->mDetails.get();
     draco::Mesh* mesh = details->mesh.get();
-    return unique_ptr<DracoMesh>(wrapper);
+    return wrapper;
 }
 
 void DracoMesh::getFaceIndices(cgltf_accessor* destination) const {
@@ -67,7 +81,7 @@ void DracoMesh::getFaceIndices(cgltf_accessor* destination) const {
     cgltf_buffer_view* view = mDetails->views.back().get();
     cgltf_buffer* buffer = mDetails->buffers.back().get();
 
-    // TODO: fix memory leaks
+    // TODO: fix memory leaks or ignore the accessor's desired types
 
     draco::Mesh* mesh = mDetails->mesh.get();
     switch (destination->component_type) {

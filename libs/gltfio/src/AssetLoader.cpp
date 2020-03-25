@@ -137,6 +137,7 @@ struct FAssetLoader : public AssetLoader {
     void createRenderable(const cgltf_node* node, Entity entity);
     bool createPrimitive(const cgltf_primitive* inPrim, Primitive* outPrim, const UvMap& uvmap,
             const char* name);
+    bool decodeDracoPrimitive(const cgltf_primitive* inPrim);
     MaterialInstance* createMaterialInstance(const cgltf_material* inputMat, UvMap* uvmap,
             bool vertexColor);
     void addTextureBinding(MaterialInstance* materialInstance, const char* parameterName,
@@ -445,6 +446,15 @@ bool FAssetLoader::createPrimitive(const cgltf_primitive* inPrim, Primitive* out
         slots->push_back(entry);
     };
 
+    if (GLTFIO_DRACO_SUPPORTED && inPrim->has_draco_mesh_compression) {
+        // Note that this mutates the source cgltf by populating accessor fields.
+        // In general we treat the source hierarchy as const but Draco is a special case.
+        if (!decodeDracoPrimitive(inPrim)) {
+            utils::slog.e << "Unable to decompress Draco mesh: " << name << utils::io::endl;
+            return false;
+        }
+    }
+
     // In glTF, each primitive may or may not have an index buffer.
     IndexBuffer* indices;
     const cgltf_accessor* accessor = inPrim->indices;
@@ -684,6 +694,50 @@ bool FAssetLoader::createPrimitive(const cgltf_primitive* inPrim, Primitive* out
         memset(dummyData, 0xff, size);
         VertexBuffer::BufferDescriptor bd(dummyData, size, FREE_CALLBACK);
         vertices->setBufferAt(*mEngine, slot, std::move(bd));
+    }
+
+    return true;
+}
+
+bool FAssetLoader::decodeDracoPrimitive(const cgltf_primitive* prim) {
+    const cgltf_draco_mesh_compression& draco = prim->draco_mesh_compression;
+    DracoMesh* dracoMesh = mResult->mDracoCache.findOrCreateMesh(draco.buffer_view);
+    if (!dracoMesh) {
+        return false;
+    }
+
+    // Rewrite the indices accessor if one exists.
+    if (prim->indices) {
+        dracoMesh->getFaceIndices(prim->indices);
+    }
+
+    // For a given primitive and attribute, find the corresponding accessor.
+    auto findAccessor = [prim](cgltf_attribute_type type, cgltf_int idx) {
+        for (cgltf_size i = 0; i < prim->attributes_count; i++) {
+            const cgltf_attribute& attr = prim->attributes[i];
+            if (attr.type == type && attr.index == idx) {
+                return attr.data;
+            }
+        }
+        return (cgltf_accessor*) nullptr;
+    };
+
+    for (cgltf_size i = 0; i < draco.attributes_count; i++) {
+
+        // In cgltf, each Draco attribute's data pointer is an attribute id, not an accessor.
+        const uint32_t id = draco.attributes[i].data - mResult->mSourceAsset->accessors;
+
+        // Find the destination accessor; this contains the desired component type, etc.
+        const cgltf_attribute_type type = draco.attributes[i].type;
+        const cgltf_int index = draco.attributes[i].index;
+        cgltf_accessor* accessor = findAccessor(type, index);
+        if (!accessor) {
+            slog.w << "Cannot find matching accessor for Draco id " << id << io::endl;
+            continue;
+        }
+
+        // Rewrite the accessor structure using information from the decompressed mesh.
+        dracoMesh->getVertexAttributes(id, accessor);
     }
 
     return true;
